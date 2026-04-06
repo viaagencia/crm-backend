@@ -10,10 +10,10 @@ app.use(cors());
 app.use(express.json());
 
 const pool = mysql.createPool({
-  host: 'localhost',
-  user: 'u891142242_viadigital',
-  password: '@Via2025',
-  database: 'u891142242_Via',
+  host: process.env.DB_HOST || 'localhost',
+  user: process.env.DB_USER || 'u89114242_viadigital',
+  password: process.env.DB_PASSWORD || '@Via2025',
+  database: process.env.DB_NAME || 'u89114242_Via',
   port: 3306,
   waitForConnections: true,
   connectionLimit: 10,
