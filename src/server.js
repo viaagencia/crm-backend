@@ -9,21 +9,25 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Configuração do MySQL
+// Configuração do MySQL para Hostinger
 const pool = mysql.createPool({
   host: 'localhost',
   user: 'u891142242_viadigital',
   password: '@Via2025',
   database: 'u891142242_Via',
+  port: 3306,
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0
+  queueLimit: 0,
+  enableKeepAlive: true,
+  keepAliveInitialDelayMs: 0
 });
 
 // Função para inicializar tabelas
 async function initializeTables() {
-  const connection = await pool.getConnection();
   try {
+    const connection = await pool.getConnection();
+    
     // Tabela de Leads/Clientes
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS leads (
@@ -62,28 +66,29 @@ async function initializeTables() {
       )
     `);
 
-    console.log('✓ Tabelas inicializadas com sucesso');
-  } catch (error) {
-    console.error('Erro ao inicializar tabelas:', error);
-  } finally {
     await connection.release();
+    console.log('✓ Tabelas inicializadas com sucesso');
+    return true;
+  } catch (error) {
+    console.error('⚠ Erro ao inicializar tabelas:', error.message);
+    return false;
   }
 }
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, timestamp: new Date().toISOString() });
+  res.json({ ok: true, timestamp: new Date().toISOString(), database: 'mysql' });
 });
 
 // LEADS - GET todos
 app.get('/api/leads', async (req, res) => {
   try {
     const connection = await pool.getConnection();
-    const [rows] = await connection.execute('SELECT * FROM leads');
+    const [rows] = await connection.execute('SELECT * FROM leads ORDER BY created_at DESC');
     await connection.release();
-    res.json(rows);
+    res.json(rows || []);
   } catch (error) {
-    console.error('Erro ao buscar leads:', error);
+    console.error('Erro GET /api/leads:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -109,13 +114,13 @@ app.post('/api/leads', async (req, res) => {
     const connection = await pool.getConnection();
     await connection.execute(
       'INSERT INTO leads (id, name, email, phone, status, funnel_id) VALUES (?, ?, ?, ?, ?, ?)',
-      [id, name, email, phone, status, funnel_id]
+      [id, name, email, phone, status || 'novo', funnel_id]
     );
     await connection.release();
     
-    res.status(201).json({ id, name, email, phone, status, funnel_id });
+    res.status(201).json({ id, name, email, phone, status: status || 'novo', funnel_id });
   } catch (error) {
-    console.error('Erro ao criar lead:', error);
+    console.error('Erro POST /api/leads:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -154,10 +159,11 @@ app.delete('/api/leads/:id', async (req, res) => {
 app.get('/api/funnels', async (req, res) => {
   try {
     const connection = await pool.getConnection();
-    const [rows] = await connection.execute('SELECT * FROM funnels');
+    const [rows] = await connection.execute('SELECT * FROM funnels ORDER BY created_at DESC');
     await connection.release();
-    res.json(rows);
+    res.json(rows || []);
   } catch (error) {
+    console.error('Erro GET /api/funnels:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -171,13 +177,13 @@ app.post('/api/funnels', async (req, res) => {
     const connection = await pool.getConnection();
     await connection.execute(
       'INSERT INTO funnels (id, name, description) VALUES (?, ?, ?)',
-      [id, name, description]
+      [id, name, description || '']
     );
     await connection.release();
     
-    res.status(201).json({ id, name, description });
+    res.status(201).json({ id, name, description: description || '' });
   } catch (error) {
-    console.error('Erro ao criar funil:', error);
+    console.error('Erro POST /api/funnels:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -216,9 +222,9 @@ app.delete('/api/funnels/:id', async (req, res) => {
 app.get('/api/contacts', async (req, res) => {
   try {
     const connection = await pool.getConnection();
-    const [rows] = await connection.execute('SELECT * FROM contacts');
+    const [rows] = await connection.execute('SELECT * FROM contacts ORDER BY created_at DESC');
     await connection.release();
-    res.json(rows);
+    res.json(rows || []);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -244,12 +250,16 @@ app.post('/api/contacts', async (req, res) => {
 });
 
 // Inicializar e start
-initializeTables().then(() => {
-  app.listen(PORT, () => {
+initializeTables().then((success) => {
+  app.listen(PORT, '0.0.0.0', () => {
     console.log(`✓ Servidor rodando na porta ${PORT}`);
-    console.log(`✓ MySQL conectado`);
+    if (success) {
+      console.log(`✓ MySQL conectado e tabelas prontas`);
+    } else {
+      console.log(`⚠ Aviso: Verificar conexão MySQL`);
+    }
   });
 }).catch(error => {
-  console.error('Erro ao iniciar servidor:', error);
+  console.error('Erro fatal ao iniciar servidor:', error);
   process.exit(1);
 });
