@@ -11,9 +11,9 @@ app.use(express.json());
 
 const pool = mysql.createPool({
   host: 'localhost',
-  user: 'u89114242_viadigital',
-  password: '@Via2025',
-  database: 'u89114242_Via',
+  user: 'u891142242_crm',
+  password: 'CrmVia@2025!',
+  database: 'u891142242_crm',
   port: 3306,
   waitForConnections: true,
   connectionLimit: 10,
