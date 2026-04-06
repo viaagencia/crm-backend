@@ -111,6 +111,19 @@ async function initializeTables() {
       )
     `);
 
+    // Tabela de Anotações
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS anotacoes (
+        id VARCHAR(36) PRIMARY KEY,
+        texto TEXT,
+        lead_id VARCHAR(36),
+        paciente_id VARCHAR(36),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE SET NULL,
+        FOREIGN KEY (paciente_id) REFERENCES pacientes(id) ON DELETE SET NULL
+      )
+    `);
+
     // Tabela de Orçamentos
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS orcamentos (
@@ -477,6 +490,78 @@ app.delete('/api/orcamentos/:id', async (req, res) => {
     await connection.execute('DELETE FROM orcamentos WHERE id = ?', [req.params.id]);
     await connection.release();
     res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== TAREFAS POR TELEFONE (para sincronizar com Google Sheets) =====
+
+// GET - busca todas as tarefas de um contato por telefone (lead ou paciente)
+app.get('/api/tarefas-by-phone/:telefone', async (req, res) => {
+  try {
+    const { telefone } = req.params;
+    const cleanPhone = telefone.replace(/\D/g, '');
+    const connection = await pool.getConnection();
+
+    // Buscar tarefas linkedadas a leads ou pacientes com esse telefone
+    const [rows] = await connection.execute(`
+      SELECT t.* FROM tarefas t
+      LEFT JOIN leads l ON t.lead_id = l.id
+      LEFT JOIN pacientes p ON t.paciente_id = p.id
+      WHERE REPLACE(REPLACE(REPLACE(REPLACE(l.phone, '-', ''), ' ', ''), '(', ''), ')', '') = ?
+         OR REPLACE(REPLACE(REPLACE(REPLACE(p.phone, '-', ''), ' ', ''), '(', ''), ')', '') = ?
+      ORDER BY t.created_at DESC
+    `, [cleanPhone, cleanPhone]);
+
+    await connection.release();
+    res.json(rows || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET - busca todas as atividades de um contato por telefone
+app.get('/api/atividades-by-phone/:telefone', async (req, res) => {
+  try {
+    const { telefone } = req.params;
+    const cleanPhone = telefone.replace(/\D/g, '');
+    const connection = await pool.getConnection();
+
+    const [rows] = await connection.execute(`
+      SELECT a.* FROM atividades a
+      LEFT JOIN leads l ON a.lead_id = l.id
+      LEFT JOIN pacientes p ON a.paciente_id = p.id
+      WHERE REPLACE(REPLACE(REPLACE(REPLACE(l.phone, '-', ''), ' ', ''), '(', ''), ')', '') = ?
+         OR REPLACE(REPLACE(REPLACE(REPLACE(p.phone, '-', ''), ' ', ''), '(', ''), ')', '') = ?
+      ORDER BY a.created_at DESC
+    `, [cleanPhone, cleanPhone]);
+
+    await connection.release();
+    res.json(rows || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET - busca todas as anotações de um contato por telefone
+app.get('/api/anotacoes-by-phone/:telefone', async (req, res) => {
+  try {
+    const { telefone } = req.params;
+    const cleanPhone = telefone.replace(/\D/g, '');
+    const connection = await pool.getConnection();
+
+    const [rows] = await connection.execute(`
+      SELECT a.* FROM anotacoes a
+      LEFT JOIN leads l ON a.lead_id = l.id
+      LEFT JOIN pacientes p ON a.paciente_id = p.id
+      WHERE REPLACE(REPLACE(REPLACE(REPLACE(l.phone, '-', ''), ' ', ''), '(', ''), ')', '') = ?
+         OR REPLACE(REPLACE(REPLACE(REPLACE(p.phone, '-', ''), ' ', ''), '(', ''), ')', '') = ?
+      ORDER BY a.created_at DESC
+    `, [cleanPhone, cleanPhone]);
+
+    await connection.release();
+    res.json(rows || []);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
