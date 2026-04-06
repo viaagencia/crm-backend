@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Configuração do MySQL para Hostinger
+// Pool de conexões MySQL
 const pool = mysql.createPool({
   host: 'localhost',
   user: 'u891142242_viadigital',
@@ -23,26 +23,11 @@ const pool = mysql.createPool({
   keepAliveInitialDelayMs: 0
 });
 
-// Função para inicializar tabelas
+// Inicializar tabelas
 async function initializeTables() {
   try {
     const connection = await pool.getConnection();
     
-    // Tabela de Leads/Clientes
-    await connection.execute(`
-      CREATE TABLE IF NOT EXISTS leads (
-        id VARCHAR(36) PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        email VARCHAR(255),
-        phone VARCHAR(20),
-        status VARCHAR(50),
-        funnel_id VARCHAR(36),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Tabela de Funis
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS funnels (
         id VARCHAR(36) PRIMARY KEY,
@@ -53,7 +38,20 @@ async function initializeTables() {
       )
     `);
 
-    // Tabela de Contatos
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS leads (
+        id VARCHAR(36) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255),
+        phone VARCHAR(20),
+        status VARCHAR(50),
+        funnel_id VARCHAR(36),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (funnel_id) REFERENCES funnels(id) ON DELETE SET NULL
+      )
+    `);
+
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS contacts (
         id VARCHAR(36) PRIMARY KEY,
@@ -67,7 +65,7 @@ async function initializeTables() {
     `);
 
     await connection.release();
-    console.log('✓ Tabelas inicializadas com sucesso');
+    console.log('✓ Tabelas prontas');
     return true;
   } catch (error) {
     console.error('⚠ Erro ao inicializar tabelas:', error.message);
@@ -77,85 +75,10 @@ async function initializeTables() {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, timestamp: new Date().toISOString(), database: 'mysql' });
+  res.json({ ok: true, status: 'running' });
 });
 
-// LEADS - GET todos
-app.get('/api/leads', async (req, res) => {
-  try {
-    const connection = await pool.getConnection();
-    const [rows] = await connection.execute('SELECT * FROM leads ORDER BY created_at DESC');
-    await connection.release();
-    res.json(rows || []);
-  } catch (error) {
-    console.error('Erro GET /api/leads:', error.message);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// LEADS - GET por ID
-app.get('/api/leads/:id', async (req, res) => {
-  try {
-    const connection = await pool.getConnection();
-    const [rows] = await connection.execute('SELECT * FROM leads WHERE id = ?', [req.params.id]);
-    await connection.release();
-    res.json(rows[0] || null);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// LEADS - POST (criar)
-app.post('/api/leads', async (req, res) => {
-  try {
-    const { name, email, phone, status, funnel_id } = req.body;
-    const id = uuidv4();
-    
-    const connection = await pool.getConnection();
-    await connection.execute(
-      'INSERT INTO leads (id, name, email, phone, status, funnel_id) VALUES (?, ?, ?, ?, ?, ?)',
-      [id, name, email, phone, status || 'novo', funnel_id]
-    );
-    await connection.release();
-    
-    res.status(201).json({ id, name, email, phone, status: status || 'novo', funnel_id });
-  } catch (error) {
-    console.error('Erro POST /api/leads:', error.message);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// LEADS - PUT (atualizar)
-app.put('/api/leads/:id', async (req, res) => {
-  try {
-    const { name, email, phone, status, funnel_id } = req.body;
-    
-    const connection = await pool.getConnection();
-    await connection.execute(
-      'UPDATE leads SET name = ?, email = ?, phone = ?, status = ?, funnel_id = ? WHERE id = ?',
-      [name, email, phone, status, funnel_id, req.params.id]
-    );
-    await connection.release();
-    
-    res.json({ id: req.params.id, name, email, phone, status, funnel_id });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// LEADS - DELETE
-app.delete('/api/leads/:id', async (req, res) => {
-  try {
-    const connection = await pool.getConnection();
-    await connection.execute('DELETE FROM leads WHERE id = ?', [req.params.id]);
-    await connection.release();
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// FUNIS - GET todos
+// FUNNELS
 app.get('/api/funnels', async (req, res) => {
   try {
     const connection = await pool.getConnection();
@@ -163,12 +86,11 @@ app.get('/api/funnels', async (req, res) => {
     await connection.release();
     res.json(rows || []);
   } catch (error) {
-    console.error('Erro GET /api/funnels:', error.message);
+    console.error('Erro:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// FUNIS - POST (criar)
 app.post('/api/funnels', async (req, res) => {
   try {
     const { name, description } = req.body;
@@ -183,30 +105,26 @@ app.post('/api/funnels', async (req, res) => {
     
     res.status(201).json({ id, name, description: description || '' });
   } catch (error) {
-    console.error('Erro POST /api/funnels:', error.message);
+    console.error('Erro POST:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// FUNIS - PUT (atualizar)
 app.put('/api/funnels/:id', async (req, res) => {
   try {
     const { name, description } = req.body;
-    
     const connection = await pool.getConnection();
     await connection.execute(
       'UPDATE funnels SET name = ?, description = ? WHERE id = ?',
       [name, description, req.params.id]
     );
     await connection.release();
-    
     res.json({ id: req.params.id, name, description });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// FUNIS - DELETE
 app.delete('/api/funnels/:id', async (req, res) => {
   try {
     const connection = await pool.getConnection();
@@ -218,7 +136,63 @@ app.delete('/api/funnels/:id', async (req, res) => {
   }
 });
 
-// CONTATOS - GET todos
+// LEADS
+app.get('/api/leads', async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
+    const [rows] = await connection.execute('SELECT * FROM leads ORDER BY created_at DESC');
+    await connection.release();
+    res.json(rows || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/leads', async (req, res) => {
+  try {
+    const { name, email, phone, status, funnel_id } = req.body;
+    const id = uuidv4();
+    
+    const connection = await pool.getConnection();
+    await connection.execute(
+      'INSERT INTO leads (id, name, email, phone, status, funnel_id) VALUES (?, ?, ?, ?, ?, ?)',
+      [id, name, email, phone, status || 'novo', funnel_id]
+    );
+    await connection.release();
+    
+    res.status(201).json({ id, name, email, phone, status: status || 'novo', funnel_id });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/leads/:id', async (req, res) => {
+  try {
+    const { name, email, phone, status, funnel_id } = req.body;
+    const connection = await pool.getConnection();
+    await connection.execute(
+      'UPDATE leads SET name = ?, email = ?, phone = ?, status = ?, funnel_id = ? WHERE id = ?',
+      [name, email, phone, status, funnel_id, req.params.id]
+    );
+    await connection.release();
+    res.json({ id: req.params.id, name, email, phone, status, funnel_id });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/leads/:id', async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
+    await connection.execute('DELETE FROM leads WHERE id = ?', [req.params.id]);
+    await connection.release();
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// CONTACTS
 app.get('/api/contacts', async (req, res) => {
   try {
     const connection = await pool.getConnection();
@@ -230,7 +204,6 @@ app.get('/api/contacts', async (req, res) => {
   }
 });
 
-// CONTATOS - POST
 app.post('/api/contacts', async (req, res) => {
   try {
     const { lead_id, name, email, phone } = req.body;
@@ -249,17 +222,21 @@ app.post('/api/contacts', async (req, res) => {
   }
 });
 
-// Inicializar e start
-initializeTables().then((success) => {
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`✓ Servidor rodando na porta ${PORT}`);
-    if (success) {
-      console.log(`✓ MySQL conectado e tabelas prontas`);
-    } else {
-      console.log(`⚠ Aviso: Verificar conexão MySQL`);
-    }
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({ message: 'CRM API rodando', version: '1.0.0' });
+});
+
+// Inicializar
+initializeTables().then(() => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`✓ Server listening on port ${PORT}`);
+  });
+  
+  server.on('error', (err) => {
+    console.error('Server error:', err);
   });
 }).catch(error => {
-  console.error('Erro fatal ao iniciar servidor:', error);
+  console.error('Fatal error:', error);
   process.exit(1);
 });
