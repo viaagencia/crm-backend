@@ -9,7 +9,6 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Pool de conexões MySQL
 const pool = mysql.createPool({
   host: 'localhost',
   user: 'u891142242_viadigital',
@@ -18,16 +17,14 @@ const pool = mysql.createPool({
   port: 3306,
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0,
-  enableKeepAlive: true,
-  keepAliveInitialDelayMs: 0
+  queueLimit: 0
 });
 
-// Inicializar tabelas
 async function initializeTables() {
   try {
     const connection = await pool.getConnection();
     
+    // Tabela de Funis
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS funnels (
         id VARCHAR(36) PRIMARY KEY,
@@ -38,10 +35,11 @@ async function initializeTables() {
       )
     `);
 
+    // Tabela de Leads
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS leads (
         id VARCHAR(36) PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
+        name VARCHAR(255),
         email VARCHAR(255),
         phone VARCHAR(20),
         status VARCHAR(50),
@@ -52,33 +50,95 @@ async function initializeTables() {
       )
     `);
 
+    // Tabela de Pacientes
     await connection.execute(`
-      CREATE TABLE IF NOT EXISTS contacts (
+      CREATE TABLE IF NOT EXISTS pacientes (
         id VARCHAR(36) PRIMARY KEY,
-        lead_id VARCHAR(36),
-        name VARCHAR(255),
+        nome VARCHAR(255),
         email VARCHAR(255),
         phone VARCHAR(20),
+        status VARCHAR(50),
+        coluna_id VARCHAR(36),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Tabela de Tarefas
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS tarefas (
+        id VARCHAR(36) PRIMARY KEY,
+        titulo VARCHAR(255),
+        descricao TEXT,
+        status VARCHAR(50),
+        tipo VARCHAR(50),
+        lead_id VARCHAR(36),
+        paciente_id VARCHAR(36),
+        data_vencimento DATE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE SET NULL,
+        FOREIGN KEY (paciente_id) REFERENCES pacientes(id) ON DELETE SET NULL
+      )
+    `);
+
+    // Tabela de Atividades
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS atividades (
+        id VARCHAR(36) PRIMARY KEY,
+        tipo VARCHAR(50),
+        descricao TEXT,
+        lead_id VARCHAR(36),
+        paciente_id VARCHAR(36),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE SET NULL,
+        FOREIGN KEY (paciente_id) REFERENCES pacientes(id) ON DELETE SET NULL
+      )
+    `);
+
+    // Tabela de Agendamentos
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS agendamentos (
+        id VARCHAR(36) PRIMARY KEY,
+        titulo VARCHAR(255),
+        data_hora DATETIME,
+        local VARCHAR(255),
+        lead_id VARCHAR(36),
+        paciente_id VARCHAR(36),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE SET NULL,
+        FOREIGN KEY (paciente_id) REFERENCES pacientes(id) ON DELETE SET NULL
+      )
+    `);
+
+    // Tabela de Orçamentos
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS orcamentos (
+        id VARCHAR(36) PRIMARY KEY,
+        titulo VARCHAR(255),
+        valor DECIMAL(10, 2),
+        status VARCHAR(50),
+        lead_id VARCHAR(36),
+        paciente_id VARCHAR(36),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE SET NULL,
+        FOREIGN KEY (paciente_id) REFERENCES pacientes(id) ON DELETE SET NULL
       )
     `);
 
     await connection.release();
     console.log('✓ Tabelas prontas');
-    return true;
   } catch (error) {
     console.error('⚠ Erro ao inicializar tabelas:', error.message);
-    return false;
   }
 }
 
-// Health check
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, status: 'running' });
 });
 
-// FUNNELS
+// ===== FUNNELS =====
 app.get('/api/funnels', async (req, res) => {
   try {
     const connection = await pool.getConnection();
@@ -86,7 +146,6 @@ app.get('/api/funnels', async (req, res) => {
     await connection.release();
     res.json(rows || []);
   } catch (error) {
-    console.error('Erro:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -95,17 +154,11 @@ app.post('/api/funnels', async (req, res) => {
   try {
     const { name, description } = req.body;
     const id = uuidv4();
-    
     const connection = await pool.getConnection();
-    await connection.execute(
-      'INSERT INTO funnels (id, name, description) VALUES (?, ?, ?)',
-      [id, name, description || '']
-    );
+    await connection.execute('INSERT INTO funnels (id, name, description) VALUES (?, ?, ?)', [id, name, description || '']);
     await connection.release();
-    
-    res.status(201).json({ id, name, description: description || '' });
+    res.status(201).json({ id, name, description });
   } catch (error) {
-    console.error('Erro POST:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -114,10 +167,7 @@ app.put('/api/funnels/:id', async (req, res) => {
   try {
     const { name, description } = req.body;
     const connection = await pool.getConnection();
-    await connection.execute(
-      'UPDATE funnels SET name = ?, description = ? WHERE id = ?',
-      [name, description, req.params.id]
-    );
+    await connection.execute('UPDATE funnels SET name = ?, description = ? WHERE id = ?', [name, description, req.params.id]);
     await connection.release();
     res.json({ id: req.params.id, name, description });
   } catch (error) {
@@ -136,7 +186,7 @@ app.delete('/api/funnels/:id', async (req, res) => {
   }
 });
 
-// LEADS
+// ===== LEADS =====
 app.get('/api/leads', async (req, res) => {
   try {
     const connection = await pool.getConnection();
@@ -152,15 +202,11 @@ app.post('/api/leads', async (req, res) => {
   try {
     const { name, email, phone, status, funnel_id } = req.body;
     const id = uuidv4();
-    
     const connection = await pool.getConnection();
-    await connection.execute(
-      'INSERT INTO leads (id, name, email, phone, status, funnel_id) VALUES (?, ?, ?, ?, ?, ?)',
-      [id, name, email, phone, status || 'novo', funnel_id]
-    );
+    await connection.execute('INSERT INTO leads (id, name, email, phone, status, funnel_id) VALUES (?, ?, ?, ?, ?, ?)', 
+      [id, name, email, phone, status, funnel_id]);
     await connection.release();
-    
-    res.status(201).json({ id, name, email, phone, status: status || 'novo', funnel_id });
+    res.status(201).json({ id, name, email, phone, status, funnel_id });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -170,10 +216,8 @@ app.put('/api/leads/:id', async (req, res) => {
   try {
     const { name, email, phone, status, funnel_id } = req.body;
     const connection = await pool.getConnection();
-    await connection.execute(
-      'UPDATE leads SET name = ?, email = ?, phone = ?, status = ?, funnel_id = ? WHERE id = ?',
-      [name, email, phone, status, funnel_id, req.params.id]
-    );
+    await connection.execute('UPDATE leads SET name = ?, email = ?, phone = ?, status = ?, funnel_id = ? WHERE id = ?',
+      [name, email, phone, status, funnel_id, req.params.id]);
     await connection.release();
     res.json({ id: req.params.id, name, email, phone, status, funnel_id });
   } catch (error) {
@@ -192,11 +236,11 @@ app.delete('/api/leads/:id', async (req, res) => {
   }
 });
 
-// CONTACTS
-app.get('/api/contacts', async (req, res) => {
+// ===== PACIENTES =====
+app.get('/api/pacientes', async (req, res) => {
   try {
     const connection = await pool.getConnection();
-    const [rows] = await connection.execute('SELECT * FROM contacts ORDER BY created_at DESC');
+    const [rows] = await connection.execute('SELECT * FROM pacientes ORDER BY created_at DESC');
     await connection.release();
     res.json(rows || []);
   } catch (error) {
@@ -204,39 +248,237 @@ app.get('/api/contacts', async (req, res) => {
   }
 });
 
-app.post('/api/contacts', async (req, res) => {
+app.post('/api/pacientes', async (req, res) => {
   try {
-    const { lead_id, name, email, phone } = req.body;
+    const { nome, email, phone, status, coluna_id } = req.body;
     const id = uuidv4();
-    
     const connection = await pool.getConnection();
-    await connection.execute(
-      'INSERT INTO contacts (id, lead_id, name, email, phone) VALUES (?, ?, ?, ?, ?)',
-      [id, lead_id, name, email, phone]
-    );
+    await connection.execute('INSERT INTO pacientes (id, nome, email, phone, status, coluna_id) VALUES (?, ?, ?, ?, ?, ?)',
+      [id, nome, email, phone, status, coluna_id]);
     await connection.release();
-    
-    res.status(201).json({ id, lead_id, name, email, phone });
+    res.status(201).json({ id, nome, email, phone, status, coluna_id });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Root endpoint
-app.get('/', (req, res) => {
-  res.json({ message: 'CRM API rodando', version: '1.0.0' });
+app.put('/api/pacientes/:id', async (req, res) => {
+  try {
+    const { nome, email, phone, status, coluna_id } = req.body;
+    const connection = await pool.getConnection();
+    await connection.execute('UPDATE pacientes SET nome = ?, email = ?, phone = ?, status = ?, coluna_id = ? WHERE id = ?',
+      [nome, email, phone, status, coluna_id, req.params.id]);
+    await connection.release();
+    res.json({ id: req.params.id, nome, email, phone, status, coluna_id });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// Inicializar
+app.delete('/api/pacientes/:id', async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
+    await connection.execute('DELETE FROM pacientes WHERE id = ?', [req.params.id]);
+    await connection.release();
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== TAREFAS =====
+app.get('/api/tarefas', async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
+    const [rows] = await connection.execute('SELECT * FROM tarefas ORDER BY created_at DESC');
+    await connection.release();
+    res.json(rows || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/tarefas', async (req, res) => {
+  try {
+    const { titulo, descricao, status, tipo, lead_id, paciente_id, data_vencimento } = req.body;
+    const id = uuidv4();
+    const connection = await pool.getConnection();
+    await connection.execute('INSERT INTO tarefas (id, titulo, descricao, status, tipo, lead_id, paciente_id, data_vencimento) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, titulo, descricao, status, tipo, lead_id, paciente_id, data_vencimento]);
+    await connection.release();
+    res.status(201).json({ id, titulo, descricao, status, tipo, lead_id, paciente_id, data_vencimento });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/tarefas/:id', async (req, res) => {
+  try {
+    const { titulo, descricao, status, tipo, lead_id, paciente_id, data_vencimento } = req.body;
+    const connection = await pool.getConnection();
+    await connection.execute('UPDATE tarefas SET titulo = ?, descricao = ?, status = ?, tipo = ?, lead_id = ?, paciente_id = ?, data_vencimento = ? WHERE id = ?',
+      [titulo, descricao, status, tipo, lead_id, paciente_id, data_vencimento, req.params.id]);
+    await connection.release();
+    res.json({ id: req.params.id, titulo, descricao, status, tipo, lead_id, paciente_id, data_vencimento });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/tarefas/:id', async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
+    await connection.execute('DELETE FROM tarefas WHERE id = ?', [req.params.id]);
+    await connection.release();
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== ATIVIDADES =====
+app.get('/api/atividades', async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
+    const [rows] = await connection.execute('SELECT * FROM atividades ORDER BY created_at DESC');
+    await connection.release();
+    res.json(rows || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/atividades', async (req, res) => {
+  try {
+    const { tipo, descricao, lead_id, paciente_id } = req.body;
+    const id = uuidv4();
+    const connection = await pool.getConnection();
+    await connection.execute('INSERT INTO atividades (id, tipo, descricao, lead_id, paciente_id) VALUES (?, ?, ?, ?, ?)',
+      [id, tipo, descricao, lead_id, paciente_id]);
+    await connection.release();
+    res.status(201).json({ id, tipo, descricao, lead_id, paciente_id });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/atividades/:id', async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
+    await connection.execute('DELETE FROM atividades WHERE id = ?', [req.params.id]);
+    await connection.release();
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== AGENDAMENTOS =====
+app.get('/api/agendamentos', async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
+    const [rows] = await connection.execute('SELECT * FROM agendamentos ORDER BY data_hora DESC');
+    await connection.release();
+    res.json(rows || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/agendamentos', async (req, res) => {
+  try {
+    const { titulo, data_hora, local, lead_id, paciente_id } = req.body;
+    const id = uuidv4();
+    const connection = await pool.getConnection();
+    await connection.execute('INSERT INTO agendamentos (id, titulo, data_hora, local, lead_id, paciente_id) VALUES (?, ?, ?, ?, ?, ?)',
+      [id, titulo, data_hora, local, lead_id, paciente_id]);
+    await connection.release();
+    res.status(201).json({ id, titulo, data_hora, local, lead_id, paciente_id });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/agendamentos/:id', async (req, res) => {
+  try {
+    const { titulo, data_hora, local, lead_id, paciente_id } = req.body;
+    const connection = await pool.getConnection();
+    await connection.execute('UPDATE agendamentos SET titulo = ?, data_hora = ?, local = ?, lead_id = ?, paciente_id = ? WHERE id = ?',
+      [titulo, data_hora, local, lead_id, paciente_id, req.params.id]);
+    await connection.release();
+    res.json({ id: req.params.id, titulo, data_hora, local, lead_id, paciente_id });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/agendamentos/:id', async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
+    await connection.execute('DELETE FROM agendamentos WHERE id = ?', [req.params.id]);
+    await connection.release();
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== ORÇAMENTOS =====
+app.get('/api/orcamentos', async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
+    const [rows] = await connection.execute('SELECT * FROM orcamentos ORDER BY created_at DESC');
+    await connection.release();
+    res.json(rows || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/orcamentos', async (req, res) => {
+  try {
+    const { titulo, valor, status, lead_id, paciente_id } = req.body;
+    const id = uuidv4();
+    const connection = await pool.getConnection();
+    await connection.execute('INSERT INTO orcamentos (id, titulo, valor, status, lead_id, paciente_id) VALUES (?, ?, ?, ?, ?, ?)',
+      [id, titulo, valor, status, lead_id, paciente_id]);
+    await connection.release();
+    res.status(201).json({ id, titulo, valor, status, lead_id, paciente_id });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/orcamentos/:id', async (req, res) => {
+  try {
+    const { titulo, valor, status, lead_id, paciente_id } = req.body;
+    const connection = await pool.getConnection();
+    await connection.execute('UPDATE orcamentos SET titulo = ?, valor = ?, status = ?, lead_id = ?, paciente_id = ? WHERE id = ?',
+      [titulo, valor, status, lead_id, paciente_id, req.params.id]);
+    await connection.release();
+    res.json({ id: req.params.id, titulo, valor, status, lead_id, paciente_id });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/orcamentos/:id', async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
+    await connection.execute('DELETE FROM orcamentos WHERE id = ?', [req.params.id]);
+    await connection.release();
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 initializeTables().then(() => {
-  const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`✓ Server listening on port ${PORT}`);
-  });
-  
-  server.on('error', (err) => {
-    console.error('Server error:', err);
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`✓ Server rodando na porta ${PORT}`);
+    console.log(`✓ MySQL conectado`);
   });
 }).catch(error => {
-  console.error('Fatal error:', error);
+  console.error('Erro fatal:', error);
   process.exit(1);
 });
