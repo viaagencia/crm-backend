@@ -1,190 +1,193 @@
-import sqlite3 from 'sqlite3';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import fs from 'fs';
+import mysql from 'mysql2/promise';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../data/crm.db');
-
-// Criar pasta data se não existir
-const dataDir = path.dirname(DB_PATH);
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
-
-const db = new sqlite3.Database(DB_PATH, (err) => {
-  if (err) {
-    console.error('Erro ao conectar ao banco de dados:', err);
-  } else {
-    console.log('✓ Conectado ao banco SQLite:', DB_PATH);
-    initDatabase();
-  }
+const pool = mysql.createPool({
+  host: process.env.DB_HOST || 'localhost',
+  user: process.env.DB_USER || 'u89114242_viadigital',
+  password: process.env.DB_PASSWORD || '@Via2025',
+  database: process.env.DB_NAME || 'u89114242_Via',
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
 });
 
-// Habilitar foreign keys
-db.run('PRAGMA foreign_keys = ON');
+// Inicializar banco de dados
+async function initDatabase() {
+  try {
+    const connection = await pool.getConnection();
 
-function initDatabase() {
-  db.serialize(() => {
+    console.log('✓ Conectado ao banco MySQL:', process.env.DB_NAME || 'u89114242_Via');
+
     // Tabela de Usuários
-    db.run(`
+    await connection.query(`
       CREATE TABLE IF NOT EXISTS usuarios (
-        id TEXT PRIMARY KEY,
-        email TEXT NOT NULL UNIQUE,
-        senha TEXT NOT NULL,
-        nome TEXT,
-        ativo INTEGER DEFAULT 1,
-        criadoEm TEXT NOT NULL,
-        atualizadoEm TEXT NOT NULL
+        id VARCHAR(36) PRIMARY KEY,
+        email VARCHAR(255) NOT NULL UNIQUE,
+        senha VARCHAR(255) NOT NULL,
+        nome VARCHAR(255),
+        ativo INT DEFAULT 1,
+        criadoEm DATETIME NOT NULL,
+        atualizadoEm DATETIME NOT NULL
       )
     `);
 
     // Tabela de Leads
-    db.run(`
+    await connection.query(`
       CREATE TABLE IF NOT EXISTS leads (
-        id TEXT PRIMARY KEY,
-        usuarioId TEXT NOT NULL,
-        nome TEXT NOT NULL,
-        telefone TEXT NOT NULL,
-        email TEXT,
-        origem TEXT,
-        etapa TEXT DEFAULT 'Novo',
-        criadoEm TEXT NOT NULL,
-        atualizadoEm TEXT NOT NULL,
-        sincronizadoComPlanilha INTEGER DEFAULT 0,
+        id VARCHAR(36) PRIMARY KEY,
+        usuarioId VARCHAR(36) NOT NULL,
+        nome VARCHAR(255) NOT NULL,
+        telefone VARCHAR(20) NOT NULL,
+        email VARCHAR(255),
+        origem VARCHAR(100),
+        etapa VARCHAR(50) DEFAULT 'Novo',
+        criadoEm DATETIME NOT NULL,
+        atualizadoEm DATETIME NOT NULL,
+        sincronizadoComPlanilha INT DEFAULT 0,
         FOREIGN KEY(usuarioId) REFERENCES usuarios(id) ON DELETE CASCADE,
         UNIQUE(usuarioId, telefone)
       )
     `);
 
     // Tabela de Pacientes
-    db.run(`
+    await connection.query(`
       CREATE TABLE IF NOT EXISTS pacientes (
-        id TEXT PRIMARY KEY,
-        usuarioId TEXT NOT NULL,
-        nome TEXT NOT NULL,
-        telefone TEXT NOT NULL,
-        email TEXT,
-        dataNascimento TEXT,
-        criadoEm TEXT NOT NULL,
-        atualizadoEm TEXT NOT NULL,
+        id VARCHAR(36) PRIMARY KEY,
+        usuarioId VARCHAR(36) NOT NULL,
+        nome VARCHAR(255) NOT NULL,
+        telefone VARCHAR(20) NOT NULL,
+        email VARCHAR(255),
+        dataNascimento DATE,
+        criadoEm DATETIME NOT NULL,
+        atualizadoEm DATETIME NOT NULL,
         FOREIGN KEY(usuarioId) REFERENCES usuarios(id) ON DELETE CASCADE,
         UNIQUE(usuarioId, telefone)
       )
     `);
 
     // Tabela de Atividades
-    db.run(`
+    await connection.query(`
       CREATE TABLE IF NOT EXISTS atividades (
-        id TEXT PRIMARY KEY,
-        usuarioId TEXT NOT NULL,
-        contatoId TEXT NOT NULL,
-        contatoTipo TEXT NOT NULL,
-        tipo TEXT NOT NULL,
-        status TEXT NOT NULL,
+        id VARCHAR(36) PRIMARY KEY,
+        usuarioId VARCHAR(36) NOT NULL,
+        contatoId VARCHAR(36) NOT NULL,
+        contatoTipo VARCHAR(50) NOT NULL,
+        tipo VARCHAR(100) NOT NULL,
+        status VARCHAR(50) NOT NULL,
         observacao TEXT,
-        criadoEm TEXT NOT NULL,
+        criadoEm DATETIME NOT NULL,
         FOREIGN KEY(usuarioId) REFERENCES usuarios(id) ON DELETE CASCADE,
         FOREIGN KEY(contatoId) REFERENCES leads(id) ON DELETE CASCADE
       )
     `);
 
     // Tabela de Funis (Pipelines)
-    db.run(`
+    await connection.query(`
       CREATE TABLE IF NOT EXISTS funis (
-        id TEXT PRIMARY KEY,
-        usuarioId TEXT NOT NULL,
-        nome TEXT NOT NULL,
+        id VARCHAR(36) PRIMARY KEY,
+        usuarioId VARCHAR(36) NOT NULL,
+        nome VARCHAR(255) NOT NULL,
         descricao TEXT,
-        ordem INTEGER DEFAULT 0,
-        criadoEm TEXT NOT NULL,
-        atualizadoEm TEXT NOT NULL,
+        ordem INT DEFAULT 0,
+        criadoEm DATETIME NOT NULL,
+        atualizadoEm DATETIME NOT NULL,
         FOREIGN KEY(usuarioId) REFERENCES usuarios(id) ON DELETE CASCADE,
         UNIQUE(usuarioId, nome)
       )
     `);
 
     // Tabela de Etapas do Funil
-    db.run(`
+    await connection.query(`
       CREATE TABLE IF NOT EXISTS etapas (
-        id TEXT PRIMARY KEY,
-        funilId TEXT NOT NULL,
-        nome TEXT NOT NULL,
-        ordem INTEGER NOT NULL,
-        cor TEXT,
-        criadoEm TEXT NOT NULL,
+        id VARCHAR(36) PRIMARY KEY,
+        funilId VARCHAR(36) NOT NULL,
+        nome VARCHAR(255) NOT NULL,
+        ordem INT NOT NULL,
+        cor VARCHAR(7),
+        criadoEm DATETIME NOT NULL,
         FOREIGN KEY(funilId) REFERENCES funis(id) ON DELETE CASCADE,
         UNIQUE(funilId, nome)
       )
     `);
 
     // Tabela de Tarefas
-    db.run(`
+    await connection.query(`
       CREATE TABLE IF NOT EXISTS tarefas (
-        id TEXT PRIMARY KEY,
-        usuarioId TEXT NOT NULL,
-        contatoId TEXT NOT NULL,
-        titulo TEXT NOT NULL,
-        status TEXT NOT NULL,
-        dataHora TEXT,
-        criadoEm TEXT NOT NULL,
+        id VARCHAR(36) PRIMARY KEY,
+        usuarioId VARCHAR(36) NOT NULL,
+        contatoId VARCHAR(36) NOT NULL,
+        titulo VARCHAR(255) NOT NULL,
+        status VARCHAR(50) NOT NULL,
+        dataHora DATETIME,
+        criadoEm DATETIME NOT NULL,
         FOREIGN KEY(usuarioId) REFERENCES usuarios(id) ON DELETE CASCADE,
         FOREIGN KEY(contatoId) REFERENCES leads(id) ON DELETE CASCADE
       )
     `);
 
     // Tabela de Anotações
-    db.run(`
+    await connection.query(`
       CREATE TABLE IF NOT EXISTS anotacoes (
-        id TEXT PRIMARY KEY,
-        usuarioId TEXT NOT NULL,
-        contatoId TEXT NOT NULL,
+        id VARCHAR(36) PRIMARY KEY,
+        usuarioId VARCHAR(36) NOT NULL,
+        contatoId VARCHAR(36) NOT NULL,
         texto TEXT NOT NULL,
-        criadoEm TEXT NOT NULL,
+        criadoEm DATETIME NOT NULL,
         FOREIGN KEY(usuarioId) REFERENCES usuarios(id) ON DELETE CASCADE,
         FOREIGN KEY(contatoId) REFERENCES leads(id) ON DELETE CASCADE
       )
     `);
 
     // Tabela de Telefones Apagados (blacklist)
-    db.run(`
+    await connection.query(`
       CREATE TABLE IF NOT EXISTS telefones_apagados (
-        telefone TEXT PRIMARY KEY,
+        telefone VARCHAR(20) PRIMARY KEY,
         motivo TEXT,
-        apagadoEm TEXT NOT NULL
+        apagadoEm DATETIME NOT NULL
       )
     `);
 
     console.log('✓ Tabelas inicializadas com sucesso');
-  });
+    connection.release();
+  } catch (err) {
+    console.error('Erro ao inicializar banco de dados:', err);
+  }
 }
+
+// Inicializar ao importar
+initDatabase();
 
 // Helpers para queries com Promise
-export function dbRun(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function(err) {
-      if (err) reject(err);
-      else resolve({ id: this.lastID, changes: this.changes });
-    });
-  });
+export async function dbRun(sql, params = []) {
+  try {
+    const connection = await pool.getConnection();
+    const [result] = await connection.execute(sql, params);
+    connection.release();
+    return { id: result.insertId, changes: result.affectedRows };
+  } catch (err) {
+    throw err;
+  }
 }
 
-export function dbGet(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) reject(err);
-      else resolve(row);
-    });
-  });
+export async function dbGet(sql, params = []) {
+  try {
+    const connection = await pool.getConnection();
+    const [rows] = await connection.execute(sql, params);
+    connection.release();
+    return rows[0] || null;
+  } catch (err) {
+    throw err;
+  }
 }
 
-export function dbAll(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows || []);
-    });
-  });
+export async function dbAll(sql, params = []) {
+  try {
+    const connection = await pool.getConnection();
+    const [rows] = await connection.execute(sql, params);
+    connection.release();
+    return rows || [];
+  } catch (err) {
+    throw err;
+  }
 }
 
-export default db;
+export default pool;
