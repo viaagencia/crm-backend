@@ -88,6 +88,8 @@ async function initializeTables() {
         id VARCHAR(36) PRIMARY KEY,
         tipo VARCHAR(50),
         descricao TEXT,
+        status VARCHAR(50),
+        observacao TEXT,
         lead_id VARCHAR(36),
         paciente_id VARCHAR(36),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -372,13 +374,13 @@ app.get('/api/atividades', async (req, res) => {
 
 app.post('/api/atividades', async (req, res) => {
   try {
-    const { tipo, descricao, lead_id, paciente_id } = req.body;
+    const { tipo, status, observacao, descricao, lead_id, paciente_id } = req.body;
     const id = uuidv4();
     const connection = await pool.getConnection();
-    await connection.execute('INSERT INTO atividades (id, tipo, descricao, lead_id, paciente_id) VALUES (?, ?, ?, ?, ?)',
-      [id, tipo, descricao, lead_id, paciente_id]);
+    await connection.execute('INSERT INTO atividades (id, tipo, status, observacao, descricao, lead_id, paciente_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [id, tipo, status, observacao, descricao || observacao, lead_id, paciente_id]);
     await connection.release();
-    res.status(201).json({ id, tipo, descricao, lead_id, paciente_id });
+    res.status(201).json({ id, tipo, status, observacao, lead_id, paciente_id });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -562,6 +564,43 @@ app.get('/api/anotacoes-by-phone/:telefone', async (req, res) => {
 
     await connection.release();
     res.json(rows || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== ANOTAÇÕES =====
+app.get('/api/anotacoes', async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
+    const [rows] = await connection.execute('SELECT * FROM anotacoes ORDER BY created_at DESC');
+    await connection.release();
+    res.json(rows || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/anotacoes', async (req, res) => {
+  try {
+    const { texto, lead_id, paciente_id } = req.body;
+    const id = uuidv4();
+    const connection = await pool.getConnection();
+    await connection.execute('INSERT INTO anotacoes (id, texto, lead_id, paciente_id) VALUES (?, ?, ?, ?)',
+      [id, texto, lead_id, paciente_id]);
+    await connection.release();
+    res.status(201).json({ id, texto, lead_id, paciente_id });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/anotacoes/:id', async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
+    await connection.execute('DELETE FROM anotacoes WHERE id = ?', [req.params.id]);
+    await connection.release();
+    res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
