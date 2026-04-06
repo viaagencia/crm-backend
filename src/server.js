@@ -10,7 +10,7 @@ app.use(cors());
 app.use(express.json());
 
 const pool = mysql.createPool({
-  host: 'localhost',
+  host: '127.0.0.1',
   user: 'u891142242_crm',
   password: 'CrmVia@2025!',
   database: 'u891142242_crm',
