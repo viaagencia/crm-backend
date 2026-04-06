@@ -127,6 +127,15 @@ async function initializeTables() {
       )
     `);
 
+    // Tabela de Estado CRM (armazena JSON completo por chave)
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS crm_state (
+        state_key VARCHAR(100) PRIMARY KEY,
+        state_value LONGTEXT,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+
     await connection.release();
     console.log('✓ Tabelas prontas');
   } catch (error) {
@@ -468,6 +477,70 @@ app.delete('/api/orcamentos/:id', async (req, res) => {
     await connection.execute('DELETE FROM orcamentos WHERE id = ?', [req.params.id]);
     await connection.release();
     res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== CRM STATE SYNC (bulk JSON sync) =====
+
+// GET - busca todo o estado do CRM do MySQL
+app.get('/api/crm-state', async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
+    const [rows] = await connection.execute('SELECT state_key, state_value FROM crm_state');
+    await connection.release();
+
+    const state = {};
+    for (const row of rows) {
+      try {
+        state[row.state_key] = JSON.parse(row.state_value);
+      } catch {
+        state[row.state_key] = row.state_value;
+      }
+    }
+    res.json(state);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT - salva todo o estado do CRM no MySQL
+app.put('/api/crm-state', async (req, res) => {
+  try {
+    const state = req.body;
+    const connection = await pool.getConnection();
+
+    for (const [key, value] of Object.entries(state)) {
+      const jsonValue = JSON.stringify(value);
+      await connection.execute(
+        'INSERT INTO crm_state (state_key, state_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE state_value = ?, updated_at = CURRENT_TIMESTAMP',
+        [key, jsonValue, jsonValue]
+      );
+    }
+
+    await connection.release();
+    res.json({ ok: true, keys: Object.keys(state) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET - busca uma chave específica
+app.get('/api/crm-state/:key', async (req, res) => {
+  try {
+    const connection = await pool.getConnection();
+    const [rows] = await connection.execute('SELECT state_value FROM crm_state WHERE state_key = ?', [req.params.key]);
+    await connection.release();
+
+    if (rows.length === 0) {
+      return res.json(null);
+    }
+    try {
+      res.json(JSON.parse(rows[0].state_value));
+    } catch {
+      res.json(rows[0].state_value);
+    }
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
